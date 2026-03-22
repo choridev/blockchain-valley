@@ -2,7 +2,7 @@ version: '3.8'
 
 # 공통 설정 템플릿
 x-node-common: &node-common
-  image: my-gaiad:local
+  image: my-gaiad:hacked
   networks:
     - cosmos-net
   restart: unless-stopped
