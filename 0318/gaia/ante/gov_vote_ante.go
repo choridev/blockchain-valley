@@ -1,0 +1,108 @@
+package ante
+
+import (
+	errorsmod "cosmossdk.io/errors"
+
+	"github.com/cosmos/cosmos-sdk/codec"
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/x/authz"
+	govv1 "github.com/cosmos/cosmos-sdk/x/gov/types/v1"
+	govv1beta1 "github.com/cosmos/cosmos-sdk/x/gov/types/v1beta1"
+	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
+
+	gaiaerrors "github.com/cosmos/gaia/v27/types/errors"
+	gaiagov "github.com/cosmos/gaia/v27/x/gov"
+)
+
+var maxWrappedMessageDepth = 20 // maximum depth of nested exec messages allowed
+
+type GovVoteDecorator struct {
+	stakingKeeper *stakingkeeper.Keeper
+	cdc           codec.BinaryCodec
+}
+
+func NewGovVoteDecorator(cdc codec.BinaryCodec, stakingKeeper *stakingkeeper.Keeper) GovVoteDecorator {
+	return GovVoteDecorator{
+		stakingKeeper: stakingKeeper,
+		cdc:           cdc,
+	}
+}
+
+func (g GovVoteDecorator) AnteHandle(
+	ctx sdk.Context, tx sdk.Tx,
+	simulate bool, next sdk.AnteHandler,
+) (newCtx sdk.Context, err error) {
+	// do not run check during simulations
+	if simulate {
+		return next(ctx, tx, simulate)
+	}
+
+	msgs := tx.GetMsgs()
+	if err = g.ValidateVoteMsgs(ctx, msgs); err != nil {
+		return ctx, err
+	}
+
+	return next(ctx, tx, simulate)
+}
+
+// ValidateVoteMsgs checks if a voter has enough stake to vote
+func (g GovVoteDecorator) ValidateVoteMsgs(ctx sdk.Context, msgs []sdk.Msg) error {
+	for _, msg := range msgs {
+		if err := g.validateMsgRecursive(ctx, msg, 0); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (g GovVoteDecorator) validateMsgRecursive(ctx sdk.Context, m sdk.Msg, iters int) error {
+	if iters >= maxWrappedMessageDepth {
+		return errorsmod.Wrap(gaiaerrors.ErrNestedMessageLimitExceeded, "too many wrapped sdk messages")
+	}
+	if msg, ok := m.(*authz.MsgExec); ok {
+		for _, v := range msg.Msgs {
+			var innerMsg sdk.Msg
+			if err := g.cdc.UnpackAny(v, &innerMsg); err != nil {
+				return errorsmod.Wrap(gaiaerrors.ErrUnauthorized, "cannot unmarshal authz exec msgs")
+			}
+			if err := g.validateMsgRecursive(ctx, innerMsg, iters+1); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return g.validMsg(ctx, m)
+}
+
+func (g GovVoteDecorator) validMsg(ctx sdk.Context, m sdk.Msg) error {
+	var accAddr sdk.AccAddress
+	var err error
+
+	switch msg := m.(type) {
+	case *govv1beta1.MsgVote:
+		accAddr, err = sdk.AccAddressFromBech32(msg.Voter)
+		if err != nil {
+			return err
+		}
+	case *govv1.MsgVote:
+		accAddr, err = sdk.AccAddressFromBech32(msg.Voter)
+		if err != nil {
+			return err
+		}
+	case *govv1beta1.MsgVoteWeighted:
+		accAddr, err = sdk.AccAddressFromBech32(msg.Voter)
+		if err != nil {
+			return err
+		}
+	case *govv1.MsgVoteWeighted:
+		accAddr, err = sdk.AccAddressFromBech32(msg.Voter)
+		if err != nil {
+			return err
+		}
+	default:
+		// not a vote message - nothing to validate
+		return nil
+	}
+
+	return gaiagov.ValidateVoterStake(ctx, g.stakingKeeper, accAddr)
+}

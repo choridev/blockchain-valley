@@ -1,0 +1,191 @@
+name: Test
+on:
+  workflow_call:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}-tests
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: depot-ubuntu-22.04-4
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          check-latest: true
+          cache: true
+          cache-dependency-path: go.sum
+      - uses: technote-space/get-diff-action@v6.1.2
+        id: git_diff
+        with:
+          PATTERNS: |
+            **/*.go
+            go.mod
+            go.sum
+            **/go.mod
+            **/go.sum
+            **/Makefile
+            Makefile
+      - uses: actions/cache@v4.2.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.mod') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: test & coverage report creation
+        if: env.GIT_DIFF
+        run: |
+          go test -v -coverprofile=profile.out -covermode=atomic -coverpkg=./... $(go list ./... | grep -v -e '/tests/e2e' | grep -v -e '/tests/interchain')
+      - uses: actions/upload-artifact@v4
+        if: env.GIT_DIFF
+        with:
+          name: "${{ github.sha }}-coverage"
+          path: ./profile.out
+
+  test-e2e:
+    runs-on: depot-ubuntu-22.04-4
+    timeout-minutes: 45
+    steps:
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.24.x
+      - uses: actions/checkout@v5
+      - uses: technote-space/get-diff-action@v6.1.2
+        id: git_diff
+        with:
+          PATTERNS: |
+            **/*.go
+            go.mod
+            go.sum
+            **/go.mod
+            **/go.sum
+            **/Makefile
+            Makefile
+      - name: Build Gaia Docker Image
+        if: env.GIT_DIFF
+        run: make docker-build-debug
+      - name: Build Hermes Docker Image
+        if: env.GIT_DIFF
+        run: make docker-build-hermes
+      - name: Test E2E
+        if: env.GIT_DIFF
+        run: make test-e2e
+
+  repo-analysis:
+    runs-on: depot-ubuntu-22.04-4
+    needs: [tests]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: technote-space/get-diff-action@v6.1.2
+        id: git_diff
+        with:
+          PATTERNS: |
+            **/*.go
+            go.mod
+            go.sum
+            **/go.mod
+            **/go.sum
+      - uses: actions/download-artifact@v6
+        if: env.GIT_DIFF
+        with:
+          name: "${{ github.sha }}-coverage"
+
+  liveness-test:
+    runs-on: depot-ubuntu-22.04-4
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.24.x
+      - uses: technote-space/get-diff-action@v6.1.2
+        id: git_diff
+        with:
+          PATTERNS: |
+            **/*.go
+            go.mod
+            go.sum
+            **/go.mod
+            **/go.sum
+            **/Makefile
+            Makefile
+      - name: Install Gaia
+        run: |
+          make build
+        if: env.GIT_DIFF
+      - name: Start Local Network
+        run: |
+          make start-localnet-ci > liveness.out 2>&1 &
+        if: env.GIT_DIFF
+      - name: Test Local Network Liveness
+        run: |
+          ./contrib/scripts/test_localnet_liveness.sh 100 5 50 localhost
+        if: env.GIT_DIFF
+
+  upgrade-test:
+    runs-on: depot-ubuntu-22.04-4
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: technote-space/get-diff-action@v6.1.2
+        id: git_diff
+        with:
+          PATTERNS: |
+            **/*.go
+            go.mod
+            go.sum
+            **/go.mod
+            **/go.sum
+            **/Makefile
+            Makefile
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.24.x
+      # the old gaiad binary version is hardcoded, need to be updated each major release.
+      - name: Install Old Gaiad
+        run: |
+          curl -LO https://github.com/cosmos/gaia/releases/download/v26.0.0/gaiad-v26.0.0-linux-amd64
+          chmod a+x gaiad-v26.0.0-linux-amd64
+          mkdir build
+          mv ./gaiad-v26.0.0-linux-amd64 ./build/gaiadold
+        if: env.GIT_DIFF
+      - name: Install New Gaiad
+        run: |
+          curl -LO https://github.com/CosmWasm/wasmvm/releases/download/v2.2.4/libwasmvm.x86_64.so
+          curl -LO https://github.com/CosmWasm/wasmvm/releases/download/v2.2.4/libwasmvm.aarch64.so
+          uname -m
+          sudo cp "./libwasmvm.$(uname -m).so" /usr/lib/
+          make build
+          cp ./build/gaiad ./build/gaiadnew
+          go clean -modcache
+        if: env.GIT_DIFF
+      - name: Install Cosmovisor
+        run: |
+          go install github.com/cosmos/cosmos-sdk/cosmovisor/cmd/cosmovisor@latest
+        if: env.GIT_DIFF
+      - name: Start Old Gaiad Binary
+        run: |
+          go env GOPATH
+          ./contrib/scripts/upgrade_test_scripts/run_gaia.sh
+        if: env.GIT_DIFF
+      - name: Submit Upgrade Commands
+        run: |
+          ./contrib/scripts/upgrade_test_scripts/run_upgrade_commands.sh 15
+        if: env.GIT_DIFF
+      - name: Check for successful upgrade
+        run: |
+          ./contrib/scripts/upgrade_test_scripts/test_upgrade.sh 20 5 16 localhost
+        if: env.GIT_DIFF

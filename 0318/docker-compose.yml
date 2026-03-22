@@ -1,0 +1,53 @@
+version: '3.8'
+
+# 공통 설정 템플릿
+x-node-common: &node-common
+  image: my-gaiad:local
+  networks:
+    - cosmos-net
+  restart: unless-stopped
+
+services:
+  node0:
+    <<: *node-common
+    container_name: node0
+    volumes:
+      - ./localnet/node0:/home/nonroot/.gaia
+    ports:
+      - "26657:26657" # RPC
+      - "1317:1317"   # REST API
+    command: start --rpc.laddr tcp://0.0.0.0:26657 --p2p.laddr tcp://0.0.0.0:26656
+
+  node1:
+    <<: *node-common
+    container_name: node1
+    volumes:
+      - ./localnet/node1:/home/nonroot/.gaia
+    ports:
+      - "26659:26657"
+      - "1318:1317"
+    command: start --rpc.laddr tcp://0.0.0.0:26657 --p2p.laddr tcp://0.0.0.0:26656
+
+  node2:
+    <<: *node-common
+    container_name: node2
+    volumes:
+      - ./localnet/node2:/home/nonroot/.gaia
+    ports:
+      - "26661:26657"
+      - "1319:1317"
+    command: start --rpc.laddr tcp://0.0.0.0:26657 --p2p.laddr tcp://0.0.0.0:26656
+
+  node3:
+    <<: *node-common
+    container_name: node3
+    volumes:
+      - ./localnet/node3:/home/nonroot/.gaia
+    ports:
+      - "26663:26657"
+      - "1320:1317"
+    command: start --rpc.laddr tcp://0.0.0.0:26657 --p2p.laddr tcp://0.0.0.0:26656
+
+networks:
+  cosmos-net:
+    driver: bridge
