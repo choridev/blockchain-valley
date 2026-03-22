@@ -1,6 +1,6 @@
 version: '3.8'
 
-# 공통 설정 템플릿
+# Common Configuration Template
 x-node-common: &node-common
   image: my-gaiad:hacked
   networks:
@@ -47,6 +47,20 @@ services:
       - "26663:26657"
       - "1320:1317"
     command: start --rpc.laddr tcp://0.0.0.0:26657 --p2p.laddr tcp://0.0.0.0:26656
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090" # Prometheus Web UI
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - cosmos-net
+    restart: unless-stopped
 
 networks:
   cosmos-net:

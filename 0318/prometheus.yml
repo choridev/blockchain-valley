@@ -1,0 +1,13 @@
+global:
+  scrape_interval: 1s
+  evaluation_interval: 1s
+
+scrape_configs:
+  - job_name: 'cometbft-consensus'
+    static_configs:
+      # 노드 컨테이너의 기본 Prometheus 노출 포트(26660)
+      - targets: 
+        - 'node0:26660'
+        - 'node1:26660'
+        - 'node2:26660'
+        - 'node3:26660'
