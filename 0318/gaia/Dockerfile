@@ -19,6 +19,7 @@ RUN sha256sum /lib/libwasmvm_muslc.x86_64.a | grep 70c989684d2b48ca17bbd55bb694b
 RUN cp "/lib/libwasmvm_muslc.$(uname -m).a" /lib/libwasmvm_muslc.a
 
 COPY go.mod go.sum* ./
+COPY my-cometbft ./my-cometbft
 RUN go mod download
 
 COPY . .
