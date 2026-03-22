@@ -1031,7 +1031,7 @@ func (cs *State) handleTxsAvailable() {
 
 		// +1ms to ensure RoundStepNewRound timeout always happens after RoundStepNewHeight
 		// timeoutCommit := cs.StartTime.Sub(cmttime.Now()) + 1*time.Millisecond
-		timeoutCommit = 0
+		timeoutCommit := 0
 		cs.scheduleTimeout(timeoutCommit, cs.Height, 0, cstypes.RoundStepNewRound)
 
 	case cstypes.RoundStepNewRound: // after timeoutCommit
