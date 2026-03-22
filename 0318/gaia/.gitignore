@@ -10,7 +10,10 @@
 
 # Build
 artifacts
-vendor
+vendor/*
+!vendor/github.com/
+vendor/github.com/*
+!vendor/github.com/cometbft
 build
 tools/bin/*
 examples/build/*
